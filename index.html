@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Supervisor - Panel Chats</title>
+
+<style>
+body{
+  margin:0;
+  font-family: Arial, sans-serif;
+  background:#ece5dd;
+  display:flex;
+  height:100vh;
+}
+
+/* Sidebar */
+.sidebar{
+  width:300px;
+  background:white;
+  border-right:1px solid #ddd;
+  overflow-y:auto;
+  display:flex;
+  flex-direction:column;
+}
+
+.sidebar h2{
+  margin:0;
+  padding:15px;
+  background:#444;
+  color:white;
+}
+
+.create-chat{
+  padding:10px;
+  border-bottom:1px solid #ddd;
+}
+
+.create-chat input{
+  width:100%;
+  padding:8px;
+  margin-bottom:8px;
+  border-radius:8px;
+  border:1px solid #ccc;
+  font-size:13px;
+}
+
+.create-chat button{
+  width:100%;
+  padding:8px;
+  border:none;
+  border-radius:8px;
+  background:#ff7a00;
+  color:white;
+  font-weight:bold;
+  cursor:pointer;
+}
+
+.create-chat button:hover{
+  opacity:0.9;
+}
+
+.chat-list{
+  flex:1;
+  overflow-y:auto;
+}
+
+.chat-item{
+  padding:12px;
+  border-bottom:1px solid #eee;
+  cursor:pointer;
+}
+
+.chat-item:hover{
+  background:#f5f5f5;
+}
+
+/* Chat */
+.chat-screen{
+  flex:1;
+  display:flex;
+  flex-direction:column;
+}
+
+.header{
+  background:#444;
+  color:white;
+  padding:15px;
+  font-weight:bold;
+}
+
+.info-bar{
+  background:#ddd;
+  padding:8px;
+  text-align:center;
+  font-size:13px;
+}
+
+.chat-container{
+  flex:1;
+  overflow-y:auto;
+  padding:15px;
+  display:flex;
+  flex-direction:column;
+}
+
+.message{
+  max-width:65%;
+  padding:10px 15px;
+  margin:5px 0;
+  border-radius:15px;
+  font-size:14px;
+  word-wrap:break-word;
+}
+
+.employee{
+  background:#ff7a00;
+  color:white;
+  align-self:flex-end;
+  border-bottom-right-radius:5px;
+}
+
+.client{
+  background:white;
+  align-self:flex-start;
+  border-bottom-left-radius:5px;
+}
+
+.time{
+  font-size:10px;
+  margin-top:3px;
+  text-align:right;
+  opacity:0.7;
+}
+
+.status{
+  font-size:12px;
+  text-align:center;
+  margin-top:5px;
+}
+.success{ color:green; }
+.error{ color:red; }
+</style>
+</head>
+
+<body>
+
+<!-- SIDEBAR -->
+<div class="sidebar">
+  <h2>Chats</h2>
+
+  <div class="create-chat">
+    <input type="text" id="clienteCode" placeholder="Código Cliente (Ej: CLI003)">
+    <input type="text" id="empleadoCode" placeholder="Código Empleado (Ej: EMP002)">
+    <button onclick="crearChat()">Crear Chat</button>
+    <div id="estado" class="status"></div>
+  </div>
+
+  <div class="chat-list" id="chatList">
+    Cargando...
+  </div>
+</div>
+
+<!-- CHAT -->
+<div class="chat-screen">
+  <div class="header" id="chatHeader">Seleccione un chat</div>
+  <div class="info-bar">Modo solo lectura</div>
+  <div class="chat-container" id="chat"></div>
+</div>
+
+<script>
+
+const API = "https://backendpawwi-production.up.railway.app";
+let chatId = null;
+let interval = null;
+
+/* Crear chat */
+async function crearChat(){
+  const clienteCode = document.getElementById("clienteCode").value.trim();
+  const empleadoCode = document.getElementById("empleadoCode").value.trim();
+  const estado = document.getElementById("estado");
+
+  estado.textContent = "";
+
+  if(!clienteCode || !empleadoCode){
+    estado.textContent="Campos requeridos";
+    estado.className="status error";
+    return;
+  }
+
+  try{
+    const res = await fetch(`${API}/api/chat/create`,{
+      method:"POST",
+      headers:{
+        "Content-Type":"application/json"
+      },
+      body:JSON.stringify({
+        clienteCode,
+        empleadoCode
+      })
+    });
+
+    if(!res.ok){
+      estado.textContent="Error creando chat";
+      estado.className="status error";
+      return;
+    }
+
+    estado.textContent="Chat creado correctamente";
+    estado.className="status success";
+
+    document.getElementById("clienteCode").value="";
+    document.getElementById("empleadoCode").value="";
+
+    cargarChats();
+
+  }catch(error){
+    estado.textContent="Error servidor";
+    estado.className="status error";
+  }
+}
+
+/* Cargar lista */
+async function cargarChats(){
+  const res = await fetch(`${API}/api/chat`);
+  const chats = await res.json();
+
+  const chatList = document.getElementById("chatList");
+  chatList.innerHTML="";
+
+  chats.forEach(chat=>{
+    const div=document.createElement("div");
+    div.className="chat-item";
+    div.innerHTML=`
+      <strong>${chat.clienteCode}</strong><br>
+      Empleado: ${chat.empleadoCode}
+    `;
+
+    div.onclick=()=>{
+      abrirChat(chat._id, chat.clienteCode, chat.empleadoCode);
+    };
+
+    chatList.appendChild(div);
+  });
+}
+
+/* Abrir chat */
+function abrirChat(id, cliente, empleado){
+  chatId = id;
+
+  // Actualizar título con ID
+  document.getElementById("chatHeader").textContent =
+    `Supervisor - ${cliente} / ${empleado} (ID: ${id})`;
+
+  loadMessages();
+
+  if(interval) clearInterval(interval);
+  interval = setInterval(loadMessages, 3000);
+}
+
+
+/* Cargar mensajes */
+async function loadMessages(){
+  if(!chatId) return;
+
+  const res = await fetch(`${API}/api/messages/${chatId}`);
+  const messages = await res.json();
+
+  const chat=document.getElementById("chat");
+  chat.innerHTML="";
+
+  messages.forEach(msg=>{
+    const div=document.createElement("div");
+    div.classList.add("message");
+
+    if(msg.senderCode.startsWith("EMP")){
+      div.classList.add("employee");
+    }else{
+      div.classList.add("client");
+    }
+
+    const fecha=new Date(msg.creadoEn);
+    const hora=fecha.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+
+    div.innerHTML=`
+      <div><strong>${msg.senderCode}</strong></div>
+      <div>${msg.texto}</div>
+      <div class="time">${hora}</div>
+    `;
+
+    chat.appendChild(div);
+  });
+
+  chat.scrollTop=chat.scrollHeight;
+}
+
+cargarChats();
+
+</script>
+
+</body>
+</html>
