@@ -251,6 +251,18 @@
             font-size: 0.92rem; position: relative; display: flex; flex-direction: column;
             margin-bottom: 12px; /* <--- Agrega esta línea */
         }
+
+        /* Botón para activar notificaciones (opcional) */
+        .btn-notify-setup {
+            background: var(--brand-navy);
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            margin-right: 10px;
+        }
         
         /* Utilerías JS */
         .d-none { display: none !important; }
@@ -358,6 +370,32 @@
         init() {
             this.loadActiveChats();
             this.chatListInterval = setInterval(() => this.loadActiveChats(), 10000);
+            this.requestNotificationPermission();
+        },
+
+        // --- GESTIÓN DE NOTIFICACIONES ---
+        async requestNotificationPermission() {
+            if (!("Notification" in window)) return;
+            if (Notification.permission !== "granted" && Notification.permission !== "denied") {
+                await Notification.requestPermission();
+            }
+        },
+
+        triggerNotification(msg) {
+            const isClient = msg.senderCode.startsWith('CLI');
+            // Notificar solo si es mensaje del cliente
+            if (isClient) {
+                if (Notification.permission === "granted") {
+                    new Notification(`Nuevo mensaje de ${this.clientName || 'Cliente'}`, {
+                        body: this.isImage(msg.texto) ? "📷 Imagen recibida" : msg.texto,
+                        icon: "https://pawwi.co/wp-content/uploads/2024/10/LogoPawwi.svg"
+                    });
+                }
+
+                if ("vibrate" in navigator) {
+                    navigator.vibrate([200, 100, 200]);
+                }
+            }
         },
 
         // --- MANEJO DE VISTAS ---
@@ -400,7 +438,6 @@
                     <div class="empty-state">
                         <span class="material-symbols-rounded icon-big">inbox</span>
                         <p>No hay chats activos.</p>
-                        <p class="sub-text">Crea uno nuevo usando el botón (+)</p>
                     </div>
                 `;
                 return;
@@ -422,7 +459,7 @@
                             <h3>${chat.clienteCode}</h3>
                         </div>
                         <p class="emp-name">
-                            <span class="material-symbols-rounded icon-tiny" style="font-size: 14px;">person</span>
+                            <span class="material-symbols-rounded" style="font-size: 14px;">person</span>
                             Pawwer: ${chat.empleadoCode}
                         </p>
                         <div class="id-row">
@@ -449,12 +486,8 @@
         // --- CREACIÓN DE CHATS ---
         toggleCreateForm() {
             const modal = document.getElementById('create-modal');
-            const isHidden = modal.classList.contains('d-none');
-            
-            if (isHidden) {
+            if (modal.classList.contains('d-none')) {
                 modal.classList.remove('d-none');
-                document.getElementById('input-client-code').value = '';
-                document.getElementById('input-employee-code').value = '';
             } else {
                 modal.classList.add('d-none');
             }
@@ -465,40 +498,27 @@
             const empInput = document.getElementById('input-employee-code').value.trim();
             const btnSubmit = document.getElementById('btn-submit-create');
 
-            if (!clientInput || !empInput) {
-                alert("Por favor ingresa el nombre del Cliente y del Pawwer (Empleado)");
-                return;
-            }
+            if (!clientInput || !empInput) return alert("Completa los campos");
 
             btnSubmit.disabled = true;
-            btnSubmit.textContent = "Creando...";
-
             try {
                 const res = await fetch(`${this.API}/api/chat/create`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        clienteCode: clientInput,
-                        empleadoCode: empInput
-                    })
+                    body: JSON.stringify({ clienteCode: clientInput, empleadoCode: empInput })
                 });
-
                 if (res.ok) {
                     this.toggleCreateForm();
-                    await this.loadActiveChats();
-                } else {
-                    alert("Error al crear el chat. Intenta nuevamente.");
+                    this.loadActiveChats();
                 }
             } catch (error) {
-                console.error("Error creando chat:", error);
-                alert("Error de conexión al crear chat.");
+                console.error(error);
             } finally {
                 btnSubmit.disabled = false;
-                btnSubmit.textContent = "Crear Chat";
             }
         },
 
-        // --- ACCIONES DE CHAT (SELECCIONAR, ELIMINAR, COPIAR) ---
+        // --- SELECCIÓN Y ACCIONES ---
         selectChat(id, clientCode, empCode) {
             this.chatId = id; 
             this.clientName = clientCode;
@@ -507,9 +527,9 @@
             this.isChatActive = true;
             this.messages = []; 
             this.updateDOMVisibility();
+            this.requestNotificationPermission();
 
             document.getElementById('messages-container').innerHTML = '';
-            
             this.loadMessages();
             
             if (this.messageInterval) clearInterval(this.messageInterval);
@@ -518,20 +538,12 @@
 
         async deleteChat(id, clientCode, event) {
             event.stopPropagation(); 
-            const confirmacion = confirm(`¿Estás seguro de eliminar el chat de "${clientCode}"? Esta acción no se puede deshacer.`);
-            if (!confirmacion) return;
-
+            if (!confirm(`¿Eliminar chat de "${clientCode}"?`)) return;
             try {
                 const res = await fetch(`${this.API}/api/chat/${id}`, { method: 'DELETE' });
-                if (res.ok) {
-                    alert('Chat eliminado correctamente');
-                    this.loadActiveChats();
-                } else {
-                    alert('Error al eliminar el chat');
-                }
+                if (res.ok) this.loadActiveChats();
             } catch (error) {
-                console.error('Error eliminando:', error);
-                alert('Error de conexión al intentar eliminar');
+                console.error(error);
             }
         },
 
@@ -539,10 +551,8 @@
             event.stopPropagation();
             try {
                 await navigator.clipboard.writeText(id);
-                alert('ID copiado al portapapeles');
-            } catch (err) {
-                console.error('Error al copiar:', err);
-            }
+                alert('ID copiado');
+            } catch (err) {}
         },
 
         backToList() {
@@ -554,7 +564,7 @@
             this.loadActiveChats();
         },
 
-        // --- MENSAJES DEL CHAT ---
+        // --- MENSAJES Y NOTIFICACIONES ---
         async loadMessages() {
             if (!this.chatId) return;
             try {
@@ -563,12 +573,16 @@
                 const newMessages = await res.json();
                 
                 if (newMessages.length > this.messages.length) {
+                    if (this.messages.length > 0) {
+                        const latestMsg = newMessages[newMessages.length - 1];
+                        this.triggerNotification(latestMsg);
+                    }
                     this.messages = newMessages;
                     this.renderMessages();
                     this.scrollToBottom();
                 }
             } catch (error) {
-                console.error("Error cargando mensajes:", error);
+                console.error(error);
             }
         },
 
@@ -576,18 +590,15 @@
             const container = document.getElementById('messages-container');
             
             const html = this.messages.map(msg => {
-                const isClient = msg.senderCode.startsWith('CLI');
                 const isSystemEmp = msg.senderCode.startsWith('EMP') || msg.senderCode === 'PAW001';
-                
                 const alignmentClass = isSystemEmp ? 'sent' : 'received';
-                const labelText = isClient ? 'Cliente' : 'Pawwer';
+                const labelText = msg.senderCode.startsWith('CLI') ? 'Cliente' : 'Pawwer';
                 const timeString = new Date(msg.creadoEn).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
                 
                 let contentHtml = '';
                 if (this.isImage(msg.texto)) {
                     contentHtml = `<img src="${msg.texto}" class="message-image-content">`;
                 } else {
-                    // Prevenir XSS básico
                     const safeText = msg.texto.replace(/</g, "&lt;").replace(/>/g, "&gt;");
                     contentHtml = `<span class="message-text">${safeText}</span>`;
                 }
@@ -606,8 +617,7 @@
 
         isImage(text) {
             if (!text || typeof text !== 'string') return false;
-            const cleanText = text.trim();
-            return cleanText.startsWith('data:image/') || cleanText.startsWith('data:application/octet-stream');
+            return text.trim().startsWith('data:image/') || text.trim().startsWith('data:application/octet-stream');
         },
 
         scrollToBottom() {
