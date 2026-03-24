@@ -219,6 +219,7 @@
         .message {
             max-width: 80%; padding: 10px 14px; border-radius: 18px;
             font-size: 0.92rem; position: relative; display: flex; flex-direction: column;
+            margin-bottom: 12px;
         }
         .message .sender-label { font-size: 0.65rem; font-weight: 800; margin-bottom: 3px; opacity: 0.7; }
         .message .message-time { font-size: 0.6rem; opacity: 0.5; margin-top: 4px; align-self: flex-end; }
@@ -246,13 +247,6 @@
             width: 100%;
         }
 
-        .message {
-            max-width: 80%; padding: 10px 14px; border-radius: 18px;
-            font-size: 0.92rem; position: relative; display: flex; flex-direction: column;
-            margin-bottom: 12px; /* <--- Agrega esta línea */
-        }
-
-        /* Botón para activar notificaciones (opcional) */
         .btn-notify-setup {
             background: var(--brand-navy);
             color: white;
@@ -362,14 +356,20 @@
         chatId: null,
         clientName: '',
         employeeName: '',
+        chatsMessageState: {}, // <--- NUEVO: Guarda la cantidad de mensajes por chat ID
         
         // Control de intervalos
         chatListInterval: null,
         messageInterval: null,
+        globalMessageInterval: null, // <--- NUEVO: Intervalo para revisar todos los chats
 
         init() {
             this.loadActiveChats();
             this.chatListInterval = setInterval(() => this.loadActiveChats(), 10000);
+            
+            // Revisa mensajes de todos los chats cada 5 segundos
+            this.globalMessageInterval = setInterval(() => this.checkAllChatsForMessages(), 5000);
+            
             this.requestNotificationPermission();
         },
 
@@ -381,12 +381,14 @@
             }
         },
 
-        triggerNotification(msg) {
+        // Actualizado para aceptar el nombre del cliente dinámicamente
+        triggerNotification(msg, clientNameOverride = null) {
             const isClient = msg.senderCode.startsWith('CLI');
-            // Notificar solo si es mensaje del cliente
+            const nameToNotify = clientNameOverride || this.clientName || 'Cliente';
+            
             if (isClient) {
                 if (Notification.permission === "granted") {
-                    new Notification(`Nuevo mensaje de ${this.clientName || 'Cliente'}`, {
+                    new Notification(`Nuevo mensaje de ${nameToNotify}`, {
                         body: this.isImage(msg.texto) ? "📷 Imagen recibida" : msg.texto,
                         icon: "https://pawwi.co/wp-content/uploads/2024/10/LogoPawwi.svg"
                     });
@@ -394,6 +396,36 @@
 
                 if ("vibrate" in navigator) {
                     navigator.vibrate([200, 100, 200]);
+                }
+            }
+        },
+
+        // --- NUEVA FUNCIÓN: Revisar todos los chats en background ---
+        async checkAllChatsForMessages() {
+            if (!this.activeChats || this.activeChats.length === 0) return;
+            
+            for (const chat of this.activeChats) {
+                // Omitimos el chat que el usuario tiene abierto actualmente (loadMessages ya se encarga de ese)
+                if (this.chatId === chat._id) continue;
+
+                try {
+                    const res = await fetch(`${this.API}/api/messages/${chat._id}`);
+                    if (!res.ok) continue;
+                    const msgs = await res.json();
+                    
+                    const currentCount = msgs.length;
+                    const prevCount = this.chatsMessageState[chat._id];
+
+                    // Si prevCount existe y la cantidad actual es mayor, hay un nuevo mensaje
+                    if (prevCount !== undefined && currentCount > prevCount) {
+                        const latestMsg = msgs[msgs.length - 1];
+                        this.triggerNotification(latestMsg, chat.clienteCode);
+                    }
+                    
+                    // Actualizamos el estado global
+                    this.chatsMessageState[chat._id] = currentCount;
+                } catch (error) {
+                    console.error("Error revisando mensajes en background:", error);
                 }
             }
         },
@@ -541,7 +573,10 @@
             if (!confirm(`¿Eliminar chat de "${clientCode}"?`)) return;
             try {
                 const res = await fetch(`${this.API}/api/chat/${id}`, { method: 'DELETE' });
-                if (res.ok) this.loadActiveChats();
+                if (res.ok) {
+                    delete this.chatsMessageState[id]; // Limpiar estado al borrar
+                    this.loadActiveChats();
+                }
             } catch (error) {
                 console.error(error);
             }
@@ -578,8 +613,15 @@
                         this.triggerNotification(latestMsg);
                     }
                     this.messages = newMessages;
+                    
+                    // Mantenemos sincronizado el estado global con el chat activo
+                    this.chatsMessageState[this.chatId] = newMessages.length; 
+                    
                     this.renderMessages();
                     this.scrollToBottom();
+                } else if (this.chatsMessageState[this.chatId] === undefined) {
+                    // Inicializar el estado si es la primera vez
+                    this.chatsMessageState[this.chatId] = newMessages.length;
                 }
             } catch (error) {
                 console.error(error);
