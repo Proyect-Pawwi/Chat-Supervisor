@@ -288,12 +288,20 @@
             <div class="modal-content">
                 <h3>Crear Nuevo Chat</h3>
                 <div class="input-group">
-                    <label>Código del Cliente</label>
+                    <label>Nombre del Cliente</label>
                     <input type="text" id="input-client-code" placeholder="Ej. CLI-001">
                 </div>
                 <div class="input-group">
-                    <label>Código del Pawwer</label>
+                    <label>Numero del Cliente</label>
+                    <input type="text" id="input-client-number" placeholder="Ej. +573023835142">
+                </div>
+                <div class="input-group">
+                    <label>Nombre del Pawwer</label>
                     <input type="text" id="input-employee-code" placeholder="Ej. PAW-001">
+                </div>
+                <div class="input-group">
+                    <label>Numero del Pawwer</label>
+                    <input type="text" id="input-employee-number" placeholder="Ej. +573023835142">
                 </div>
                 <div class="modal-actions">
                     <button class="btn-cancel" onclick="app.toggleCreateForm()">Cancelar</button>
@@ -528,6 +536,8 @@
         async createChat() {
             const clientInput = document.getElementById('input-client-code').value.trim();
             const empInput = document.getElementById('input-employee-code').value.trim();
+            const clientInputNumber = document.getElementById('input-client-number').value.trim();
+            const empInputNumber = document.getElementById('input-employee-number').value.trim();
             const btnSubmit = document.getElementById('btn-submit-create');
 
             if (!clientInput || !empInput) return alert("Completa los campos");
@@ -537,7 +547,7 @@
                 const res = await fetch(`${this.API}/api/chat/create`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ clienteCode: clientInput, empleadoCode: empInput })
+                    body: JSON.stringify({ clienteCode: clientInput, empleadoCode: empInput, clienteNumber: clientInputNumber, pawwerNumber: empInputNumber })
                 });
                 if (res.ok) {
                     this.toggleCreateForm();
